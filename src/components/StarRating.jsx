@@ -5,7 +5,8 @@ const StarRating = ({ rating = 0, onRatingChange, editable = false, size = 'md' 
   const [currentRating, setCurrentRating] = useState(rating);
 
   useEffect(() => {
-    setCurrentRating(rating);
+    // Ensure rating is converted to number
+    setCurrentRating(Number(rating) || 0);
   }, [rating]);
 
   const sizeClasses = {
@@ -33,7 +34,8 @@ const StarRating = ({ rating = 0, onRatingChange, editable = false, size = 'md' 
     }
   };
 
-  const displayRating = hoverRating || currentRating;
+  // Ensure rating is always a number
+  const displayRating = Number(hoverRating || currentRating || 0);
 
   const getStarFill = (index) => {
     const starValue = index + 1;

@@ -1,3 +1,4 @@
+import PropTypes from 'prop-types';
 import { useState } from 'react';
 import { IoEyeOffOutline, IoEyeOutline } from 'react-icons/io5';
 
@@ -210,6 +211,12 @@ const AuthOverlay = ({ onClose, onLogin, onRegister }) => {
       </div>
     </div>
   );
+};
+
+AuthOverlay.propTypes = {
+  onClose: PropTypes.func.isRequired,
+  onLogin: PropTypes.func.isRequired,
+  onRegister: PropTypes.func.isRequired
 };
 
 export default AuthOverlay;

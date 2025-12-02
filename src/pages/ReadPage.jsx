@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { IoCloseOutline, IoBookmarkOutline, IoBookmarkSharp } from 'react-icons/io5';
 import Navbar from '../components/Navbar';
 import ViewPage from '../components/ViewPage';
 import ReadingProgress from '../components/ReadingProgress';
 import ReadingTime from '../components/ReadingTime';
 import QuickNotes from '../components/QuickNotes';
+import { readingService, bookmarkService } from '../services';
 
 const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, userName }) => {
   const [currentPage, setCurrentPage] = useState(1);
@@ -12,9 +13,22 @@ const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, user
   const [displayMode, setDisplayMode] = useState('pagination'); // 'pagination' or 'scroll'
   const [readingTime, setReadingTime] = useState(0); // in seconds
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const saveProgressTimeoutRef = useRef(null);
+
+  // Get user from localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userId = user.id;
 
   // Simulate pages (in real app, this would be from PDF/EPUB parser)
-  const totalPages = book?.pages || 143;
+  const totalPages = book?.pages || book?.total_pages || 143;
+
+  // Load reading progress and bookmark status on mount
+  useEffect(() => {
+    if (userId && book?.id) {
+      loadReadingProgress();
+      loadBookmarkStatus();
+    }
+  }, [userId, book?.id]);
 
   // Timer effect - always running, no pause/reset buttons
   useEffect(() => {
@@ -29,11 +43,98 @@ const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, user
     };
   }, []); // Empty dependency array - runs once on mount
 
+  // Save progress when component unmounts
+  useEffect(() => {
+    return () => {
+      if (saveProgressTimeoutRef.current) {
+        clearTimeout(saveProgressTimeoutRef.current);
+      }
+      if (userId && book?.id && furthestPage > 0) {
+        saveReadingProgress(furthestPage);
+      }
+    };
+  }, [userId, book?.id, furthestPage]);
+
+  const loadReadingProgress = async () => {
+    if (!userId || !book?.id) return;
+
+    try {
+      const result = await readingService.getProgress(userId, book.id);
+      if (result.progress) {
+        const progress = result.progress;
+        setCurrentPage(progress.current_page || 1);
+        setFurthestPage(progress.furthest_page || progress.current_page || 1);
+      }
+    } catch (err) {
+      console.error('Error loading reading progress:', err);
+    }
+  };
+
+  const loadBookmarkStatus = async () => {
+    if (!userId || !book?.id) return;
+
+    try {
+      const result = await bookmarkService.getUserBookmarks(userId);
+      const bookmarks = result.bookmarks || [];
+      setIsBookmarked(bookmarks.some(b => b.id === book.id || b.book_id === book.id));
+    } catch (err) {
+      console.error('Error loading bookmark status:', err);
+    }
+  };
+
+  const saveReadingProgress = async (page) => {
+    if (!userId || !book?.id) return;
+
+    try {
+      await readingService.updateProgress(userId, book.id, {
+        current_page: page,
+        furthest_page: page
+      });
+      
+      // Trigger refresh event for recent reads
+      window.dispatchEvent(new CustomEvent('readingProgressUpdated', { 
+        detail: { bookId: book.id, page } 
+      }));
+    } catch (err) {
+      console.error('Error saving reading progress:', err);
+    }
+  };
+
   const handlePageChange = (page) => {
     setCurrentPage(page);
     // Update furthest page only if we've read further
     if (page > furthestPage) {
       setFurthestPage(page);
+      
+      // Debounce save progress (save after 2 seconds of no page change)
+      if (saveProgressTimeoutRef.current) {
+        clearTimeout(saveProgressTimeoutRef.current);
+      }
+      saveProgressTimeoutRef.current = setTimeout(() => {
+        if (userId && book?.id) {
+          saveReadingProgress(page);
+        }
+      }, 2000);
+    }
+  };
+
+  const handleBookmarkToggle = async () => {
+    if (!userId) {
+      alert('Please login to bookmark books');
+      return;
+    }
+
+    try {
+      if (isBookmarked) {
+        await bookmarkService.removeBookmark(userId, book.id);
+        setIsBookmarked(false);
+      } else {
+        await bookmarkService.addBookmark(userId, book.id);
+        setIsBookmarked(true);
+      }
+    } catch (err) {
+      console.error('Error toggling bookmark:', err);
+      alert('Failed to update bookmark');
     }
   };
 
@@ -69,7 +170,7 @@ const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, user
             </button>
             <h1 className="text-2xl font-bold text-theme-primary">{book.title}</h1>
             <button
-              onClick={() => setIsBookmarked(!isBookmarked)}
+              onClick={handleBookmarkToggle}
               className={`p-2 rounded-lg transition-all ${
                 isBookmarked
                   ? 'bg-primary-600 text-white'
@@ -95,6 +196,7 @@ const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, user
               onPageChange={handlePageChange}
               displayMode={displayMode}
               onDisplayModeChange={handleDisplayModeChange}
+              userId={userId}
             />
           </div>
 
@@ -108,7 +210,7 @@ const ReadPage = ({ book, onClose, onOpenAuth, onOpenDashboard, isLoggedIn, user
             {isLoggedIn && (
               <>
                 <ReadingTime readingTime={readingTime} />
-                <QuickNotes />
+                <QuickNotes bookId={book.id} />
               </>
             )}
           </div>

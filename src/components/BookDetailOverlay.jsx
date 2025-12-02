@@ -1,28 +1,116 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { IoCloseOutline, IoBookmarkOutline, IoBookmarkSharp, IoArrowForwardOutline } from 'react-icons/io5';
 import StarRating from './StarRating';
+import { bookmarkService, ratingService, bookService } from '../services';
 
 const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [userRating, setUserRating] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [currentBook, setCurrentBook] = useState(book); // Local state for book data
 
-  if (!book) return null;
+  // Get user from localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userId = user.id;
 
-  const handleBookmark = () => {
-    setIsBookmarked(!isBookmarked);
+  // Update local book state when prop changes
+  useEffect(() => {
+    setCurrentBook(book);
+  }, [book]);
+
+  // Load bookmark and rating status
+  useEffect(() => {
+    if (userId && currentBook?.id) {
+      loadBookmarkStatus();
+      loadUserRating();
+    }
+  }, [userId, currentBook?.id]);
+
+  const loadBookmarkStatus = async () => {
+    if (!userId || !currentBook?.id) return;
+
+    try {
+      const result = await bookmarkService.getUserBookmarks(userId);
+      const bookmarks = result.bookmarks || [];
+      setIsBookmarked(bookmarks.some(b => b.id === currentBook.id || b.book_id === currentBook.id));
+    } catch (err) {
+      console.error('Error loading bookmark status:', err);
+    }
+  };
+
+  const loadUserRating = async () => {
+    if (!userId || !currentBook?.id) return;
+
+    try {
+      const result = await ratingService.getUserRating(userId, currentBook.id);
+      if (result.rating) {
+        setUserRating(result.rating.rating || 0);
+      }
+    } catch (err) {
+      console.error('Error loading user rating:', err);
+    }
+  };
+
+
+  if (!currentBook) return null;
+
+  const handleBookmark = async () => {
+    if (!userId) {
+      alert('Please login to bookmark books');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      if (isBookmarked) {
+        await bookmarkService.removeBookmark(userId, currentBook.id);
+        setIsBookmarked(false);
+      } else {
+        await bookmarkService.addBookmark(userId, currentBook.id);
+        setIsBookmarked(true);
+      }
+    } catch (err) {
+      console.error('Error toggling bookmark:', err);
+      alert('Failed to update bookmark');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleStartReading = () => {
     if (onStartReading) {
-      onStartReading(book);
+      onStartReading(currentBook);
       onClose();
     }
   };
 
-  const handleRatingChange = (rating) => {
-    setUserRating(rating);
-    console.log('User rated:', rating);
-    // In real app, this would save to backend
+  const handleRatingChange = async (rating) => {
+    if (!userId) {
+      alert('Please login to rate books');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await ratingService.upsertRating(userId, currentBook.id, rating);
+      setUserRating(rating);
+      
+      // Fetch updated book data to get new average_rating
+      const result = await bookService.getBookById(currentBook.id);
+      if (result.success && result.book) {
+        setCurrentBook(result.book);
+      }
+      
+      // Trigger refresh event for other components
+      window.dispatchEvent(new CustomEvent('bookRatingUpdated', { 
+        detail: { bookId: currentBook.id } 
+      }));
+    } catch (err) {
+      console.error('Error saving rating:', err);
+      alert('Failed to save rating');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,12 +132,39 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {/* Left: Book Cover */}
             <div className="md:col-span-1">
-              <div className={`${book.cover} rounded-xl h-96 flex items-center justify-center shadow-xl`}>
-                <div className="text-white text-center">
-                  <div className="text-6xl font-bold mb-2">{book.title?.charAt(0)}</div>
-                  <div className="text-lg opacity-90">{book.category}</div>
-                </div>
-              </div>
+              {(() => {
+                const hasCover = currentBook.cover_url && currentBook.cover_url !== null && currentBook.cover_url !== undefined && String(currentBook.cover_url).trim() !== '';
+                return (
+                  <div className={`${hasCover ? 'bg-gray-100' : (currentBook.cover_color || 'bg-gradient-to-br from-gray-400 to-gray-600')} rounded-xl h-96 flex items-center justify-center shadow-xl relative overflow-hidden`}>
+                    {hasCover ? (
+                      <img 
+                        src={currentBook.cover_url.startsWith('http') ? currentBook.cover_url : `http://localhost:5000${currentBook.cover_url}`} 
+                        alt={currentBook.title} 
+                        className="w-full h-full object-cover rounded-xl"
+                        crossOrigin="anonymous"
+                        onLoad={() => {
+                          console.log('Image loaded successfully for book:', currentBook.id);
+                        }}
+                        onError={(e) => {
+                          console.error('Image load error for book:', currentBook.id, 'cover_url:', currentBook.cover_url);
+                          console.error('Full image URL:', currentBook.cover_url.startsWith('http') ? currentBook.cover_url : `http://localhost:5000${currentBook.cover_url}`);
+                          e.target.style.display = 'none';
+                          const parent = e.target.parentElement;
+                          if (parent) {
+                            parent.className = parent.className.replace('bg-gray-100', currentBook.cover_color || 'bg-gradient-to-br from-gray-400 to-gray-600');
+                            const fallback = parent.querySelector('.cover-fallback');
+                            if (fallback) fallback.style.display = 'flex';
+                          }
+                        }}
+                      />
+                    ) : null}
+                    <div className="cover-fallback text-white text-center absolute inset-0 flex flex-col items-center justify-center" style={{ display: hasCover ? 'none' : 'flex' }}>
+                      <div className="text-6xl font-bold mb-2">{currentBook.title?.charAt(0) || 'B'}</div>
+                      <div className="text-lg opacity-90">{currentBook.category}</div>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Right: Book Details */}
@@ -57,10 +172,10 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
               {/* Title */}
               <div>
                 <h2 className="text-3xl font-bold text-theme-primary mb-2">
-                  {book.title}
+                  {currentBook.title}
                 </h2>
                 <p className="text-lg text-theme-secondary">
-                  by {book.author}
+                  by {currentBook.author}
                 </p>
               </div>
 
@@ -70,7 +185,7 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
                   Description
                 </h3>
                 <p className="text-theme-secondary leading-relaxed">
-                  {book.description || 'No description available for this book.'}
+                  {currentBook.description || 'No description available for this book.'}
                 </p>
               </div>
 
@@ -79,13 +194,13 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
                 <div className="bg-theme-secondary p-4 rounded-lg border border-theme">
                   <p className="text-sm text-theme-secondary mb-1">Released Date</p>
                   <p className="text-lg font-semibold text-theme-primary">
-                    {book.releaseDate || book.released || 'N/A'}
+                    {currentBook.release_date || currentBook.releaseDate || currentBook.released || 'N/A'}
                   </p>
                 </div>
                 <div className="bg-theme-secondary p-4 rounded-lg border border-theme">
                   <p className="text-sm text-theme-secondary mb-1">Pages</p>
                   <p className="text-lg font-semibold text-theme-primary">
-                    {book.pages || 'N/A'}
+                    {currentBook.pages || 'N/A'}
                   </p>
                 </div>
               </div>
@@ -97,16 +212,16 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
                 </h3>
                 <div className="flex flex-wrap gap-2">
                   <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                    book.category === 'Biologi' ? 'bg-green-100 text-green-700' :
-                    book.category === 'Fisika' ? 'bg-blue-100 text-blue-700' :
-                    book.category === 'Kimia' ? 'bg-purple-100 text-purple-700' :
-                    book.category === 'Informatika' ? 'bg-cyan-100 text-cyan-700' :
-                    book.category === 'Sistem Informasi' ? 'bg-indigo-100 text-indigo-700' :
-                    book.category === 'Pertambangan' ? 'bg-orange-100 text-orange-700' :
-                    book.category === 'Agribisnis' ? 'bg-lime-100 text-lime-700' :
+                    currentBook.category === 'Biologi' ? 'bg-green-100 text-green-700' :
+                    currentBook.category === 'Fisika' ? 'bg-blue-100 text-blue-700' :
+                    currentBook.category === 'Kimia' ? 'bg-purple-100 text-purple-700' :
+                    currentBook.category === 'Informatika' ? 'bg-cyan-100 text-cyan-700' :
+                    currentBook.category === 'Sistem Informasi' ? 'bg-indigo-100 text-indigo-700' :
+                    currentBook.category === 'Pertambangan' ? 'bg-orange-100 text-orange-700' :
+                    currentBook.category === 'Agribisnis' ? 'bg-lime-100 text-lime-700' :
                     'bg-gray-100 text-gray-700'
                   }`}>
-                    {book.category}
+                    {currentBook.category}
                   </span>
                 </div>
               </div>
@@ -119,16 +234,16 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
                 <div className="space-y-4">
                   {/* Average Rating */}
                   <div className="flex items-center space-x-2">
-                    <StarRating rating={book.rating || 0} editable={false} size="md" />
+                    <StarRating rating={Number(currentBook.average_rating || currentBook.rating || 0)} editable={false} size="md" />
                     <span className="text-xl font-bold text-theme-primary">
-                      {book.rating || '0.0'}
+                      {Number(currentBook.average_rating || currentBook.rating || 0).toFixed(1)}
                     </span>
                     <span className="text-sm text-theme-secondary">
                       / 5.0
                     </span>
-                    {book.ratingCount && (
+                    {(currentBook.rating_count || currentBook.ratingCount) && (
                       <span className="text-sm text-theme-tertiary">
-                        ({book.ratingCount} ratings)
+                        ({(currentBook.rating_count || currentBook.ratingCount || 0)} ratings)
                       </span>
                     )}
                   </div>
@@ -154,11 +269,12 @@ const BookDetailOverlay = ({ book, onClose, onStartReading }) => {
           {/* Bookmark Button */}
           <button
             onClick={handleBookmark}
+            disabled={loading || !userId}
             className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold transition-all ${
               isBookmarked
                 ? 'bg-primary-600 text-white hover:bg-primary-700'
                 : 'bg-theme-tertiary text-theme-primary hover:bg-theme-tertiary/80'
-            }`}
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isBookmarked ? (
               <IoBookmarkSharp className="w-5 h-5" />

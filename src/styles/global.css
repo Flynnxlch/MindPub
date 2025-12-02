@@ -172,5 +172,17 @@
   .scrollbar-default::-webkit-scrollbar-thumb:hover {
     background: #0369a1;
   }
+
+  /* EPUB text justify styling */
+  .epub-text-justify {
+    text-align: justify;
+    text-justify: inter-word;
+    hyphens: auto;
+  }
+
+  .epub-text-justify p {
+    text-align: justify;
+    text-justify: inter-word;
+  }
 }
 

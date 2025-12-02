@@ -1,48 +1,95 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { IoTrashOutline, IoCreateOutline, IoCloseOutline } from 'react-icons/io5';
+import { noteService } from '../services';
 
-const QuickNotes = () => {
+const QuickNotes = ({ bookId }) => {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState('');
   const [showAllNotes, setShowAllNotes] = useState(false);
   const [editingNote, setEditingNote] = useState(null);
   const [editText, setEditText] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleAddNote = () => {
-    if (newNote.trim()) {
-      const note = {
-        id: Date.now(),
-        text: newNote.trim(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      setNotes([note, ...notes]);
-      setNewNote('');
+  // Get user from localStorage
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  const userId = user.id;
+
+  // Load notes from backend
+  useEffect(() => {
+    if (userId && bookId) {
+      loadNotes();
+    }
+  }, [userId, bookId]);
+
+  const loadNotes = async () => {
+    if (!userId || !bookId) return;
+    
+    try {
+      setLoading(true);
+      const result = await noteService.getBookNotes(userId, bookId);
+      setNotes(result.notes || []);
+    } catch (err) {
+      console.error('Error loading notes:', err);
+      setNotes([]);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteNote = (id) => {
-    setNotes(notes.filter(note => note.id !== id));
-    if (editingNote === id) {
-      setEditingNote(null);
-      setEditText('');
+  const handleAddNote = async () => {
+    if (!newNote.trim() || !userId || !bookId) {
+      if (!userId) {
+        alert('Please login to add notes');
+      }
+      return;
+    }
+
+    try {
+      const result = await noteService.createNote(userId, bookId, newNote.trim());
+      setNotes([result.note, ...notes]);
+      setNewNote('');
+    } catch (err) {
+      console.error('Error creating note:', err);
+      alert('Failed to create note');
+    }
+  };
+
+  const handleDeleteNote = async (noteId) => {
+    if (!userId) return;
+
+    try {
+      await noteService.deleteNote(userId, noteId);
+      setNotes(notes.filter(note => note.id !== noteId));
+      if (editingNote === noteId) {
+        setEditingNote(null);
+        setEditText('');
+      }
+    } catch (err) {
+      console.error('Error deleting note:', err);
+      alert('Failed to delete note');
     }
   };
 
   const handleStartEdit = (note) => {
     setEditingNote(note.id);
-    setEditText(note.text);
+    setEditText(note.note_text || note.text);
   };
 
-  const handleSaveEdit = () => {
-    if (editText.trim()) {
+  const handleSaveEdit = async () => {
+    if (!editText.trim() || !userId || !editingNote) return;
+
+    try {
+      const result = await noteService.updateNote(userId, editingNote, editText.trim());
       setNotes(notes.map(note => 
         note.id === editingNote 
-          ? { ...note, text: editText.trim(), updatedAt: new Date().toISOString() }
+          ? { ...note, note_text: editText.trim(), text: editText.trim(), updated_at: new Date().toISOString() }
           : note
       ));
       setEditingNote(null);
       setEditText('');
+    } catch (err) {
+      console.error('Error updating note:', err);
+      alert('Failed to update note');
     }
   };
 
@@ -52,6 +99,7 @@ const QuickNotes = () => {
   };
 
   const formatDate = (dateString) => {
+    if (!dateString) return '';
     const date = new Date(dateString);
     return date.toLocaleDateString('en-US', { 
       month: 'short', 
@@ -63,6 +111,15 @@ const QuickNotes = () => {
   };
 
   const displayedNotes = showAllNotes ? notes : notes.slice(0, 3);
+
+  if (!userId || !bookId) {
+    return (
+      <div className="bg-theme-card border border-theme rounded-xl shadow-lg p-6">
+        <h3 className="text-lg font-bold text-theme-primary mb-4">Quick Notes</h3>
+        <p className="text-theme-secondary text-sm">Please login to use quick notes</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-theme-card border border-theme rounded-xl shadow-lg p-6">
@@ -116,7 +173,11 @@ const QuickNotes = () => {
 
       {/* Notes List */}
       <div className="space-y-3 max-h-[400px] overflow-y-auto">
-        {displayedNotes.length === 0 ? (
+        {loading ? (
+          <div className="text-center py-8">
+            <p className="text-theme-secondary">Loading notes...</p>
+          </div>
+        ) : displayedNotes.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-theme-secondary">No notes yet. Add your first note above!</p>
           </div>
@@ -155,11 +216,11 @@ const QuickNotes = () => {
                 // View Mode
                 <div>
                   <p className="text-theme-primary whitespace-pre-wrap mb-2">
-                    {note.text}
+                    {note.note_text || note.text}
                   </p>
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-theme-tertiary">
-                      {formatDate(note.updatedAt)}
+                      {formatDate(note.updated_at || note.updatedAt || note.created_at || note.createdAt)}
                     </span>
                     <div className="flex items-center space-x-2">
                       <button

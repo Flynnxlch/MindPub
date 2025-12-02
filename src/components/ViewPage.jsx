@@ -1,10 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
 import { IoChevronBackOutline, IoChevronForwardOutline, IoSwapHorizontalOutline, IoChevronUpOutline, IoChevronDownOutline } from 'react-icons/io5';
+import { bookService } from '../services';
+import PDFViewer from './PDFViewer';
+import { preloadPDFPages } from '../utils/pdfPreloader';
 
-const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange }) => {
+const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange, userId }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [showPageDropdown, setShowPageDropdown] = useState(false);
   const [pageSearchQuery, setPageSearchQuery] = useState('');
+  const [pageContent, setPageContent] = useState({}); // Store page content by page number (for EPUB)
+  const [loadingPage, setLoadingPage] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState(null); // Store PDF URL for PDFViewer
+  const [preloadedPages, setPreloadedPages] = useState(new Set()); // Track preloaded PDF pages
   const scrollContainerRef = useRef(null);
   const pageRefs = useRef({});
   const dropdownRef = useRef(null);
@@ -29,6 +36,108 @@ const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange }) => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showPageDropdown]);
+
+  // Set PDF URL when book changes (for PDF files)
+  useEffect(() => {
+    if (book?.file_type === 'pdf' && book?.file_url) {
+      const url = book.file_url.startsWith('http') 
+        ? book.file_url 
+        : `http://localhost:5000${book.file_url}`;
+      setPdfUrl(url);
+      // Reset preloaded pages when book changes
+      setPreloadedPages(new Set());
+    } else {
+      setPdfUrl(null);
+    }
+  }, [book?.file_type, book?.file_url]);
+
+  // Preload PDF pages (20 pages at a time) when current page changes
+  useEffect(() => {
+    if (book?.file_type === 'pdf' && pdfUrl && totalPages > 0) {
+      const preloadPages = async () => {
+        const pagesToPreload = [];
+        const startPage = Math.max(1, currentPage - 10);
+        const endPage = Math.min(totalPages, currentPage + 10);
+        
+        for (let i = startPage; i <= endPage; i++) {
+          if (!preloadedPages.has(i)) {
+            pagesToPreload.push(i);
+          }
+        }
+        
+        // Mark pages as preloading to prevent duplicate requests
+        if (pagesToPreload.length > 0) {
+          setPreloadedPages(prev => {
+            const newSet = new Set(prev);
+            pagesToPreload.forEach(p => newSet.add(p));
+            return newSet;
+          });
+          
+          // Actually preload the pages in background
+          preloadPDFPages(pdfUrl, pagesToPreload).catch(err => {
+            console.warn('Error preloading PDF pages:', err);
+          });
+        }
+      };
+      
+      preloadPages();
+    }
+  }, [book?.file_type, pdfUrl, currentPage, totalPages]);
+
+  // Load page content when page changes (for EPUB files)
+  useEffect(() => {
+    if (book?.id && currentPage && book?.file_type !== 'pdf') {
+      // Only load content for EPUB, PDF uses PDFViewer
+      if (!pageContent[currentPage]) {
+        loadPageContent(currentPage);
+      }
+    }
+  }, [book?.id, book?.file_type, currentPage]);
+
+  // Load multiple pages for scroll mode (for EPUB files)
+  useEffect(() => {
+    if (displayMode === 'scroll' && book?.id && book?.file_type !== 'pdf') {
+      // Only load content for EPUB, PDF uses PDFViewer which handles its own loading
+      const pagesToLoad = Array.from({ length: Math.min(10, totalPages) }, (_, i) => i + 1);
+      pagesToLoad.forEach(pageNum => {
+        if (!pageContent[pageNum]) {
+          loadPageContent(pageNum);
+        }
+      });
+    }
+  }, [displayMode, book?.id, book?.file_type, totalPages]);
+
+  // Load page content from backend (for EPUB files)
+  const loadPageContent = async (pageNumber) => {
+    if (!book?.id || pageContent[pageNumber]) return; // Already loaded
+    
+    try {
+      setLoadingPage(true);
+      const result = await bookService.getBookPage(book.id, pageNumber);
+      if (result.success && result.page) {
+        setPageContent(prev => ({
+          ...prev,
+          [pageNumber]: {
+            content: result.page.content || `Page ${pageNumber} content not available.`,
+            fileType: result.page.fileType || book.file_type,
+            fileUrl: result.page.fileUrl || book.file_url
+          }
+        }));
+      }
+    } catch (err) {
+      console.error(`Error loading page ${pageNumber}:`, err);
+      setPageContent(prev => ({
+        ...prev,
+        [pageNumber]: {
+          content: `Error loading page ${pageNumber}. Please try again.`,
+          fileType: book?.file_type,
+          fileUrl: book?.file_url
+        }
+      }));
+    } finally {
+      setLoadingPage(false);
+    }
+  };
 
   // Update parent when page changes
   useEffect(() => {
@@ -265,18 +374,41 @@ const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange }) => {
           {/* Book Page Display */}
           <div className="min-h-[600px] lg:min-h-[800px] bg-theme-secondary p-8 flex items-center justify-center">
             <div className="max-w-3xl w-full">
-              {/* Simulated Book Content */}
+              {/* Actual Book Content */}
               <div className="prose prose-lg max-w-none text-theme-primary">
-                <h2 className="text-theme-primary mb-4">Chapter {Math.ceil(currentPage / 10)}</h2>
-                <p className="text-theme-secondary leading-relaxed">
-                  This is page {currentPage} of {totalPages}. In a real implementation, this would display the actual PDF/EPUB content parsed from the book file.
-                  <br /><br />
-                  The content would be rendered here with proper formatting, images, and text styling from the original document.
-                  <br /><br />
-                  You can navigate using the arrow buttons below or switch to scroll mode to view all pages at once.
-                  <br /><br />
-                  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
-                </p>
+                {book?.file_type === 'pdf' && pdfUrl ? (
+                  // PDF: Display using PDFViewer component
+                  <PDFViewer 
+                    pdfUrl={pdfUrl} 
+                    pageNumber={currentPage}
+                    onLoadComplete={() => {
+                      // Only set loading to false once, don't show loading again if already rendered
+                      if (loadingPage) {
+                        setLoadingPage(false);
+                      }
+                    }}
+                  />
+                ) : (
+                  // EPUB: Display as text
+                  <>
+                    {loadingPage ? (
+                      <div className="text-center py-12">
+                        <p className="text-theme-secondary">Loading page {currentPage}...</p>
+                      </div>
+                    ) : (
+                      <div className="text-theme-primary leading-relaxed whitespace-pre-wrap epub-text-justify">
+                        {pageContent[currentPage] ? (
+                          <div 
+                            className="epub-text-justify"
+                            dangerouslySetInnerHTML={{ __html: (typeof pageContent[currentPage] === 'string' ? pageContent[currentPage] : pageContent[currentPage].content || '').replace(/\n/g, '<br />') }} 
+                          />
+                        ) : (
+                          <p className="text-theme-secondary">Page {currentPage} content is loading...</p>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -315,7 +447,7 @@ const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange }) => {
           className="max-h-[800px] overflow-y-auto p-8"
         >
           <div className="max-w-3xl mx-auto space-y-12">
-            {/* Simulate multiple pages */}
+            {/* Actual pages from database */}
             {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
               <div
                 key={pageNum}
@@ -325,14 +457,46 @@ const ViewPage = ({ book, onPageChange, displayMode, onDisplayModeChange }) => {
                 <div className="border-b border-theme pb-8 mb-8">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-theme-primary">Page {pageNum}</h3>
-                    <span className="text-sm text-theme-tertiary">Chapter {Math.ceil(pageNum / 10)}</span>
+                    <span className="text-sm text-theme-tertiary">of {totalPages}</span>
                   </div>
-                  <p className="text-theme-secondary leading-relaxed">
-                    Content for page {pageNum}. In a real implementation, this would display the actual PDF/EPUB content.
-                    {pageNum === 1 && (
-                      <><br /><br />Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</>
-                    )}
-                  </p>
+                  {book?.file_type === 'pdf' && pdfUrl ? (
+                    // PDF: Display using PDFViewer component
+                    <div className="mb-8">
+                      <PDFViewer 
+                        pdfUrl={pdfUrl} 
+                        pageNumber={pageNum}
+                        onLoadComplete={() => {}}
+                      />
+                    </div>
+                  ) : pageContent[pageNum] ? (
+                    // EPUB: Display as text with justify alignment
+                    (() => {
+                      const content = typeof pageContent[pageNum] === 'string' ? pageContent[pageNum] : pageContent[pageNum].content || '';
+                      // Extract chapter info if present
+                      const chapterMatch = content.match(/^\[CHAPTER:\s*(.+?)\]\n\n/);
+                      const chapterTitle = chapterMatch ? chapterMatch[1] : null;
+                      const displayContent = chapterMatch ? content.replace(/^\[CHAPTER:\s*(.+?)\]\n\n/, '') : content;
+                      
+                      return (
+                        <div>
+                          {chapterTitle && (
+                            <div className="mb-6 pb-4 border-b-2 border-primary-500">
+                              <h2 className="text-2xl font-bold text-primary-600 mb-2">{chapterTitle}</h2>
+                              <p className="text-sm text-theme-secondary">Chapter {chapterTitle.match(/CHAPTER\s+([IVX]+|[0-9]+)/i)?.[1] || ''}</p>
+                            </div>
+                          )}
+                          <div 
+                            className="text-theme-primary leading-relaxed whitespace-pre-wrap epub-text-justify"
+                            dangerouslySetInnerHTML={{ __html: displayContent.replace(/\n/g, '<br />') }}
+                          />
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    <p className="text-theme-secondary leading-relaxed">
+                      Loading page {pageNum}...
+                    </p>
+                  )}
                 </div>
               </div>
             ))}

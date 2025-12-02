@@ -6,7 +6,50 @@ import { useTheme } from '../context/ThemeContext'
 const Navbar = ({ onOpenAuth, onOpenDashboard, onNavigateToHome, onNavigateToBooks, isLoggedIn, userName }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isScrolled, setIsScrolled] = useState(false)
+  const [userAvatar, setUserAvatar] = useState(null)
   const { theme, toggleTheme, isDark } = useTheme()
+
+  // Load user avatar from localStorage
+  useEffect(() => {
+    if (isLoggedIn) {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      if (user.avatar_url) {
+        const avatarUrl = user.avatar_url.startsWith('http') 
+          ? user.avatar_url 
+          : `http://localhost:5000${user.avatar_url}`
+        setUserAvatar(avatarUrl)
+      } else {
+        setUserAvatar(null)
+      }
+    } else {
+      setUserAvatar(null)
+    }
+  }, [isLoggedIn])
+
+  // Listen for avatar updates
+  useEffect(() => {
+    const handleStorageChange = () => {
+      if (isLoggedIn) {
+        const user = JSON.parse(localStorage.getItem('user') || '{}')
+        if (user.avatar_url) {
+          const avatarUrl = user.avatar_url.startsWith('http') 
+            ? user.avatar_url 
+            : `http://localhost:5000${user.avatar_url}`
+          setUserAvatar(avatarUrl)
+        } else {
+          setUserAvatar(null)
+        }
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+    window.addEventListener('profileUpdated', handleStorageChange)
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
+      window.removeEventListener('profileUpdated', handleStorageChange)
+    }
+  }, [isLoggedIn])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -93,9 +136,27 @@ const Navbar = ({ onOpenAuth, onOpenDashboard, onNavigateToHome, onNavigateToBoo
                 </button>
                 <button 
                   onClick={onOpenDashboard}
-                  className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold hover:bg-primary-700 transition-colors"
+                  className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold hover:bg-primary-700 transition-colors overflow-hidden relative"
                 >
-                  {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                  {userAvatar ? (
+                    <img 
+                      src={userAvatar} 
+                      alt={userName || 'User'} 
+                      className="w-full h-full object-cover"
+                      crossOrigin="anonymous"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                        const parent = e.target.parentElement
+                        if (parent) {
+                          const fallback = parent.querySelector('.avatar-fallback')
+                          if (fallback) fallback.style.display = 'flex'
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <span className="avatar-fallback" style={{ display: userAvatar ? 'none' : 'block' }}>
+                    {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                  </span>
                 </button>
               </div>
             ) : (
@@ -201,9 +262,27 @@ const Navbar = ({ onOpenAuth, onOpenDashboard, onNavigateToHome, onNavigateToBoo
                     onOpenDashboard();
                     setIsMenuOpen(false);
                   }}
-                  className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold hover:bg-primary-700 transition-colors"
+                  className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-bold hover:bg-primary-700 transition-colors overflow-hidden relative"
                 >
-                  {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                  {userAvatar ? (
+                    <img 
+                      src={userAvatar} 
+                      alt={userName || 'User'} 
+                      className="w-full h-full object-cover"
+                      crossOrigin="anonymous"
+                      onError={(e) => {
+                        e.target.style.display = 'none'
+                        const parent = e.target.parentElement
+                        if (parent) {
+                          const fallback = parent.querySelector('.avatar-fallback')
+                          if (fallback) fallback.style.display = 'flex'
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <span className="avatar-fallback" style={{ display: userAvatar ? 'none' : 'block' }}>
+                    {userName ? userName.charAt(0).toUpperCase() : 'U'}
+                  </span>
                 </button>
               </div>
             ) : (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import LandingPage from './pages/LandingPage';
 import BooksPage from './pages/BooksPage';
 import ReadPage from './pages/ReadPage';
@@ -6,6 +6,7 @@ import AuthOverlay from './components/AuthOverlay';
 import SuccessPopup from './components/SuccessPopup';
 import UserDashboard from './components/UserDashboard';
 import AdminDashboard from './components/AdminDashboard';
+import { authService } from './services';
 
 function App() {
   const [currentPage, setCurrentPage] = useState('home'); // 'home', 'books', or 'read'
@@ -15,45 +16,108 @@ function App() {
   const [showAdminDashboard, setShowAdminDashboard] = useState(false);
   const [user, setUser] = useState(null);
   const [readingBook, setReadingBook] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const handleLogin = (formData) => {
-    // Simulasi login - cek apakah user adalah admin
-    const isAdmin = formData.email.toLowerCase().includes('admin');
-    
-    const userData = {
-      name: formData.username || formData.email.split('@')[0],
-      email: formData.email,
-      isAdmin: isAdmin
-    };
-    
-    setUser(userData);
-    setShowAuth(false);
-    
-    // Buka dashboard sesuai role
-    if (isAdmin) {
-      setShowAdminDashboard(true);
-    } else {
-      setShowUserDashboard(true);
+  // Load user from localStorage on mount
+  useEffect(() => {
+    const savedUser = localStorage.getItem('user');
+    if (savedUser) {
+      try {
+        const userData = JSON.parse(savedUser);
+        setUser(userData);
+        // Don't auto-open dashboard on page load - let user decide
+        // Dashboard state is managed separately and won't persist across refreshes
+      } catch (err) {
+        console.error('Error loading user:', err);
+        localStorage.removeItem('user');
+      }
+    }
+  }, []);
+
+  const handleLogin = async (formData) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await authService.login({
+        email: formData.email,
+        password: formData.password
+      });
+      
+      if (response.success) {
+        const userData = {
+          id: response.user.id,
+          name: response.user.username,
+          email: response.user.email,
+          role: response.user.role,
+          isAdmin: response.user.role === 'admin',
+          bio: response.user.bio || '',
+          avatar_url: response.user.avatar_url || null
+        };
+        
+        // Save to localStorage
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+        setShowAuth(false);
+        
+        // Buka dashboard sesuai role
+        if (userData.isAdmin) {
+          setShowAdminDashboard(true);
+        } else {
+          setShowUserDashboard(true);
+        }
+      }
+    } catch (err) {
+      setError(err.message || 'Login failed. Please check your credentials.');
+      alert(err.message || 'Login failed. Please check your credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleRegister = (formData) => {
+  const handleRegister = async (formData) => {
     // Validasi password
     if (formData.password !== formData.confirmPassword) {
       alert('Password tidak cocok!');
       return;
     }
     
-    // Simulasi register
-    const userData = {
-      name: formData.username,
-      email: formData.email,
-      isAdmin: false
-    };
-    
-    setUser(userData);
-    setShowAuth(false);
-    setShowSuccess(true);
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await authService.register({
+        username: formData.username,
+        email: formData.email,
+        password: formData.password
+      });
+      
+      if (response.success) {
+        const userData = {
+          id: response.user.id,
+          name: response.user.username,
+          email: response.user.email,
+          role: response.user.role,
+          isAdmin: response.user.role === 'admin',
+          bio: response.user.bio || '',
+          avatar_url: response.user.avatar_url || null
+        };
+        
+        // Save to localStorage
+        localStorage.setItem('user', JSON.stringify(userData));
+        setUser(userData);
+        setShowAuth(false);
+        setShowSuccess(true);
+        
+        // Jangan langsung buka dashboard - biarkan user pilih dari popup
+      }
+    } catch (err) {
+      setError(err.message || 'Registration failed. Please try again.');
+      alert(err.message || 'Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleGoToDashboard = () => {
@@ -70,10 +134,18 @@ function App() {
     setShowAuth(true);
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    setShowUserDashboard(false);
-    setShowAdminDashboard(false);
+  const handleLogout = async () => {
+    try {
+      await authService.logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      // Clear localStorage
+      localStorage.removeItem('user');
+      setUser(null);
+      setShowUserDashboard(false);
+      setShowAdminDashboard(false);
+    }
   };
 
   const openAuthOverlay = () => {

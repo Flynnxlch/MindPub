@@ -1,84 +1,135 @@
-import { useState, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { IoCloseOutline, IoBookOutline } from 'react-icons/io5';
 import BookDetailOverlay from './BookDetailOverlay';
+import { leaderboardService } from '../services';
 
 const Leaderboard = ({ onStartReading }) => {
   const [activeTab, setActiveTab] = useState('books'); // 'books' or 'users'
   const [showFullLeaderboard, setShowFullLeaderboard] = useState(false);
   const [selectedBook, setSelectedBook] = useState(null);
-  
-  // Books data with rating and rating count
-  const booksData = [
-    { id: 1, title: 'Fisika Kuantum Modern', author: 'Prof. Siti Rahayu', rating: 4.9, ratingCount: 245, cover: 'bg-gradient-to-br from-blue-400 to-blue-600' },
-    { id: 2, title: 'Manajemen Basis Data', author: 'M. Andi Pratama', rating: 4.9, ratingCount: 198, cover: 'bg-gradient-to-br from-indigo-400 to-indigo-600' },
-    { id: 3, title: 'Teori Relativitas Einstein', author: 'Prof. Dr. Bambang', rating: 4.9, ratingCount: 156, cover: 'bg-gradient-to-br from-slate-400 to-slate-600' },
-    { id: 4, title: 'Data Mining', author: 'Dr. Rahmat Hidayat', rating: 4.9, ratingCount: 142, cover: 'bg-gradient-to-br from-purple-500 to-purple-700' },
-    { id: 5, title: 'Mekanika Kuantum', author: 'Prof. Joko Susilo', rating: 4.9, ratingCount: 128, cover: 'bg-gradient-to-br from-blue-500 to-blue-700' },
-    { id: 6, title: 'Machine Learning', author: 'Ir. Tommy Chen', rating: 4.9, ratingCount: 115, cover: 'bg-gradient-to-br from-cyan-500 to-cyan-700' },
-    { id: 7, title: 'Biologi Molekuler', author: 'Dr. Ahmad Santoso', rating: 4.8, ratingCount: 312, cover: 'bg-gradient-to-br from-green-400 to-green-600' },
-    { id: 8, title: 'Geologi Pertambangan', author: 'Dr. Rudi Hartono', rating: 4.8, ratingCount: 287, cover: 'bg-gradient-to-br from-amber-500 to-orange-600' },
-    { id: 9, title: 'Kimia Anorganik', author: 'Dr. Lisa Permata', rating: 4.8, ratingCount: 234, cover: 'bg-gradient-to-br from-violet-400 to-violet-600' },
-    { id: 10, title: 'Teknologi Pasca Panen', author: 'Prof. Siti Aminah', rating: 4.8, ratingCount: 189, cover: 'bg-gradient-to-br from-green-500 to-green-700' },
-    { id: 11, title: 'Cloud Computing', author: 'M. Rizki Pratama', rating: 4.8, ratingCount: 167, cover: 'bg-gradient-to-br from-indigo-500 to-indigo-700' },
-    { id: 12, title: 'Kimia Organik Dasar', author: 'Dr. Budi Wijaya', rating: 4.7, ratingCount: 298, cover: 'bg-gradient-to-br from-purple-400 to-purple-600' },
-    { id: 13, title: 'Agribisnis Modern', author: 'Ir. Yuni Safitri', rating: 4.7, ratingCount: 256, cover: 'bg-gradient-to-br from-lime-400 to-green-600' },
-    { id: 14, title: 'Pemrograman Web', author: 'Andi Wijaya S.Kom', rating: 4.7, ratingCount: 223, cover: 'bg-gradient-to-br from-teal-400 to-teal-600' },
-    { id: 15, title: 'Genetika Molekuler', author: 'Dr. Rina Kusuma', rating: 4.7, ratingCount: 201, cover: 'bg-gradient-to-br from-green-300 to-green-500' },
-    { id: 16, title: 'Algoritma & Struktur Data', author: 'Ir. Dewi Lestari', rating: 4.6, ratingCount: 345, cover: 'bg-gradient-to-br from-cyan-400 to-cyan-600' },
-    { id: 17, title: 'Kalkulus Lanjutan', author: 'Prof. Hendra M.', rating: 4.6, ratingCount: 278, cover: 'bg-gradient-to-br from-sky-400 to-sky-600' },
-    { id: 18, title: 'Metalurgi Ekstraktif', author: 'Ir. Budi Santoso', rating: 4.6, ratingCount: 198, cover: 'bg-gradient-to-br from-orange-400 to-orange-600' },
-    { id: 19, title: 'Mikrobiologi Terapan', author: 'Dr. Sinta Dewi', rating: 4.5, ratingCount: 267, cover: 'bg-gradient-to-br from-emerald-400 to-emerald-600' },
-    { id: 20, title: 'Kimia Fisika', author: 'Dr. Dian Purnama', rating: 4.5, ratingCount: 189, cover: 'bg-gradient-to-br from-pink-400 to-pink-600' }
-  ];
+  const [booksData, setBooksData] = useState([]);
+  const [usersData, setUsersData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // Helper functions - must be defined before useMemo
+  const getCoverGradient = (category) => {
+    const gradients = {
+      'Biologi': 'bg-gradient-to-br from-green-400 to-green-600',
+      'Fisika': 'bg-gradient-to-br from-blue-400 to-blue-600',
+      'Kimia': 'bg-gradient-to-br from-purple-400 to-purple-600',
+      'Informatika': 'bg-gradient-to-br from-cyan-400 to-cyan-600',
+      'Sistem Informasi': 'bg-gradient-to-br from-indigo-400 to-indigo-600',
+      'Pertambangan': 'bg-gradient-to-br from-amber-500 to-orange-600',
+      'Agribisnis': 'bg-gradient-to-br from-lime-400 to-green-600'
+    };
+    return gradients[category] || 'bg-gradient-to-br from-gray-400 to-gray-600';
+  };
+
+  const getAvatarColor = (index) => {
+    const colors = [
+      'bg-gradient-to-br from-blue-500 to-blue-600',
+      'bg-gradient-to-br from-purple-500 to-purple-600',
+      'bg-gradient-to-br from-pink-500 to-pink-600',
+      'bg-gradient-to-br from-green-500 to-green-600',
+      'bg-gradient-to-br from-orange-500 to-orange-600',
+      'bg-gradient-to-br from-emerald-500 to-emerald-700',
+      'bg-gradient-to-br from-sky-500 to-sky-700',
+      'bg-gradient-to-br from-violet-500 to-violet-700',
+      'bg-gradient-to-br from-teal-500 to-teal-700',
+      'bg-gradient-to-br from-purple-600 to-purple-800'
+    ];
+    return colors[index % colors.length];
+  };
+
+  // Load leaderboard data from backend
+  useEffect(() => {
+    loadLeaderboardData();
+  }, []);
+
+  // Auto-refresh leaderboard every 60 seconds
+  useEffect(() => {
+    const refreshInterval = setInterval(() => {
+      loadLeaderboardData();
+    }, 60000); // Refresh every 60 seconds
+
+    return () => {
+      clearInterval(refreshInterval);
+    };
+  }, []);
+
+  // Listen for book upload events to refresh immediately
+  useEffect(() => {
+    const handleBookUploaded = () => {
+      loadLeaderboardData();
+    };
+
+    window.addEventListener('bookUploaded', handleBookUploaded);
+    return () => {
+      window.removeEventListener('bookUploaded', handleBookUploaded);
+    };
+  }, []);
+
+  const loadLeaderboardData = async () => {
+    try {
+      setLoading(true);
+      const [booksResult, usersResult] = await Promise.all([
+        leaderboardService.getTopBooks(20),
+        leaderboardService.getTopUsers(20)
+      ]);
+      
+      setBooksData(booksResult.books || []);
+      setUsersData(usersResult.users || []);
+    } catch (err) {
+      console.error('Error loading leaderboard:', err);
+      setBooksData([]);
+      setUsersData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Sort books by rating (descending), then by ratingCount (descending) as tiebreaker
   const sortedBooks = useMemo(() => {
     return [...booksData].sort((a, b) => {
-      if (b.rating !== a.rating) {
-        return b.rating - a.rating;
+      const ratingA = a.average_rating || 0;
+      const ratingB = b.average_rating || 0;
+      const countA = a.rating_count || 0;
+      const countB = b.rating_count || 0;
+      
+      if (ratingB !== ratingA) {
+        return ratingB - ratingA;
       }
-      return b.ratingCount - a.ratingCount;
+      return countB - countA;
     }).map((book, index) => ({
       ...book,
-      rank: index + 1
+      rank: index + 1,
+      rating: book.average_rating || 0,
+      ratingCount: book.rating_count || 0,
+      cover: getCoverGradient(book.category)
     }));
-  }, []);
-
-  const topBooks = sortedBooks.slice(0, 5);
-  const allBooks = sortedBooks;
-
-  // Users data with total pages read
-  const usersData = [
-    { id: 1, name: 'Dr. Ahmad Santoso', avatar: 'AS', avatarColor: 'bg-gradient-to-br from-blue-500 to-blue-600', totalPagesRead: 2450 },
-    { id: 2, name: 'Prof. Siti Rahayu', avatar: 'SR', avatarColor: 'bg-gradient-to-br from-purple-500 to-purple-600', totalPagesRead: 2280 },
-    { id: 3, name: 'Ir. Dewi Lestari', avatar: 'DL', avatarColor: 'bg-gradient-to-br from-pink-500 to-pink-600', totalPagesRead: 2100 },
-    { id: 4, name: 'M. Andi Pratama', avatar: 'AP', avatarColor: 'bg-gradient-to-br from-green-500 to-green-600', totalPagesRead: 1950 },
-    { id: 5, name: 'Dr. Rudi Hartono', avatar: 'RH', avatarColor: 'bg-gradient-to-br from-orange-500 to-orange-600', totalPagesRead: 1720 },
-    { id: 6, name: 'Dr. Sinta Dewi', avatar: 'SD', avatarColor: 'bg-gradient-to-br from-emerald-500 to-emerald-700', totalPagesRead: 1580 },
-    { id: 7, name: 'Prof. Hendra M.', avatar: 'HM', avatarColor: 'bg-gradient-to-br from-sky-500 to-sky-700', totalPagesRead: 1450 },
-    { id: 8, name: 'Dr. Lisa Permata', avatar: 'LP', avatarColor: 'bg-gradient-to-br from-violet-500 to-violet-700', totalPagesRead: 1320 },
-    { id: 9, name: 'Andi Wijaya S.Kom', avatar: 'AW', avatarColor: 'bg-gradient-to-br from-teal-500 to-teal-700', totalPagesRead: 1200 },
-    { id: 10, name: 'Dr. Rahmat Hidayat', avatar: 'RH2', avatarColor: 'bg-gradient-to-br from-purple-600 to-purple-800', totalPagesRead: 1100 },
-    { id: 11, name: 'Ir. Budi Santoso', avatar: 'BS', avatarColor: 'bg-gradient-to-br from-orange-500 to-orange-700', totalPagesRead: 1020 },
-    { id: 12, name: 'Prof. Siti Aminah', avatar: 'SA', avatarColor: 'bg-gradient-to-br from-green-600 to-green-800', totalPagesRead: 980 },
-    { id: 13, name: 'Dr. Rina Kusuma', avatar: 'RK', avatarColor: 'bg-gradient-to-br from-green-400 to-green-600', totalPagesRead: 920 },
-    { id: 14, name: 'Prof. Joko Susilo', avatar: 'JS', avatarColor: 'bg-gradient-to-br from-blue-600 to-blue-800', totalPagesRead: 860 },
-    { id: 15, name: 'Dr. Dian Purnama', avatar: 'DP', avatarColor: 'bg-gradient-to-br from-pink-500 to-pink-700', totalPagesRead: 800 },
-    { id: 16, name: 'Ir. Tommy Chen', avatar: 'TC', avatarColor: 'bg-gradient-to-br from-cyan-600 to-cyan-800', totalPagesRead: 750 },
-    { id: 17, name: 'M. Rizki Pratama', avatar: 'RP', avatarColor: 'bg-gradient-to-br from-indigo-600 to-indigo-800', totalPagesRead: 700 },
-    { id: 18, name: 'Dr. Fitri Handayani', avatar: 'FH', avatarColor: 'bg-gradient-to-br from-rose-500 to-rose-700', totalPagesRead: 650 },
-    { id: 19, name: 'Prof. Agus Setiawan', avatar: 'AS2', avatarColor: 'bg-gradient-to-br from-amber-500 to-amber-700', totalPagesRead: 600 },
-    { id: 20, name: 'Ir. Sari Indah', avatar: 'SI', avatarColor: 'bg-gradient-to-br from-lime-500 to-lime-700', totalPagesRead: 560 }
-  ];
+  }, [booksData]);
 
   // Sort users by totalPagesRead (descending)
   const sortedUsers = useMemo(() => {
-    return [...usersData].sort((a, b) => b.totalPagesRead - a.totalPagesRead).map((user, index) => ({
-      ...user,
-      rank: index + 1
-    }));
-  }, []);
+    return [...usersData].sort((a, b) => {
+      const pagesA = a.total_pages_read || 0;
+      const pagesB = b.total_pages_read || 0;
+      return pagesB - pagesA;
+    }).map((user, index) => {
+      const initials = (user.username || user.name || 'U').substring(0, 2).toUpperCase();
+      return {
+        ...user,
+        rank: index + 1,
+        name: user.username || user.name || 'Unknown User',
+        avatar: initials,
+        avatarColor: getAvatarColor(index),
+        totalPagesRead: user.total_pages_read || 0
+      };
+    });
+  }, [usersData]);
 
+  const topBooks = sortedBooks.slice(0, 5);
+  const allBooks = sortedBooks;
   const topUsers = sortedUsers.slice(0, 5);
   const allUsers = sortedUsers;
 
@@ -153,7 +204,16 @@ const Leaderboard = ({ onStartReading }) => {
       {/* Books Leaderboard */}
       {activeTab === 'books' && (
         <div className="space-y-3">
-        {topBooks.map((book) => (
+        {loading ? (
+          <div className="text-center py-4">
+            <p className="text-theme-secondary">Loading...</p>
+          </div>
+        ) : topBooks.length === 0 ? (
+          <div className="text-center py-4">
+            <p className="text-theme-secondary">No books available</p>
+          </div>
+        ) : (
+          topBooks.map((book) => (
           <div
             key={book.id}
             className="flex items-center space-x-3 p-3 rounded-lg hover:bg-theme-tertiary transition-colors cursor-pointer group"
@@ -163,7 +223,38 @@ const Leaderboard = ({ onStartReading }) => {
             {getRankBadgeElement(book.rank)}
 
             {/* Book Cover */}
-            <div className={`w-12 h-16 ${book.cover} rounded flex-shrink-0 shadow-md`}></div>
+                  {(() => {
+                    const hasCover = book.cover_url && book.cover_url !== null && book.cover_url !== undefined && String(book.cover_url).trim() !== '';
+                    return (
+                      <div className={`w-12 h-16 ${hasCover ? 'bg-gray-100' : getCoverGradient(book.category)} rounded flex-shrink-0 shadow-md flex items-center justify-center relative overflow-hidden`}>
+                        {hasCover ? (
+                          <img 
+                            src={book.cover_url.startsWith('http') ? book.cover_url : `http://localhost:5000${book.cover_url}`} 
+                            alt={book.title} 
+                            className="w-full h-full object-cover rounded"
+                            crossOrigin="anonymous"
+                            onLoad={() => {
+                              console.log('Image loaded successfully for book:', book.id);
+                            }}
+                            onError={(e) => {
+                              console.error('Image load error for book:', book.id, 'cover_url:', book.cover_url);
+                              console.error('Full image URL:', book.cover_url.startsWith('http') ? book.cover_url : `http://localhost:5000${book.cover_url}`);
+                              e.target.style.display = 'none';
+                              const parent = e.target.parentElement;
+                              if (parent) {
+                                parent.className = parent.className.replace('bg-gray-100', getCoverGradient(book.category));
+                                const fallback = parent.querySelector('.cover-fallback');
+                                if (fallback) fallback.style.display = 'flex';
+                              }
+                            }}
+                          />
+                        ) : null}
+                        <div className="cover-fallback text-white text-xs font-bold absolute inset-0 flex items-center justify-center" style={{ display: hasCover ? 'none' : 'flex' }}>
+                          {book.title?.charAt(0) || 'B'}
+                        </div>
+                      </div>
+                    );
+                  })()}
 
             {/* Book Info */}
             <div className="flex-1 min-w-0">
@@ -185,14 +276,23 @@ const Leaderboard = ({ onStartReading }) => {
               </div>
             </div>
           </div>
-        ))}
+        )))}
         </div>
       )}
 
       {/* Users Leaderboard */}
       {activeTab === 'users' && (
         <div className="space-y-3">
-          {topUsers.map((user) => (
+          {loading ? (
+            <div className="text-center py-4">
+              <p className="text-theme-secondary">Loading...</p>
+            </div>
+          ) : topUsers.length === 0 ? (
+            <div className="text-center py-4">
+              <p className="text-theme-secondary">No users available</p>
+            </div>
+          ) : (
+            topUsers.map((user) => (
             <div
               key={user.id}
               className="flex items-center space-x-3 p-3 rounded-lg hover:bg-theme-tertiary transition-colors cursor-pointer group"
@@ -224,7 +324,7 @@ const Leaderboard = ({ onStartReading }) => {
                 </div>
               </div>
             </div>
-          ))}
+          )))}
         </div>
       )}
 
@@ -295,7 +395,13 @@ const Leaderboard = ({ onStartReading }) => {
                       {getRankBadgeElement(book.rank)}
 
                       {/* Book Cover */}
-                      <div className={`w-12 h-16 ${book.cover} rounded flex-shrink-0 shadow-md`}></div>
+                      <div className={`w-12 h-16 ${book.cover || getCoverGradient(book.category)} rounded flex-shrink-0 shadow-md flex items-center justify-center`}>
+                        {book.cover_url ? (
+                          <img src={book.cover_url} alt={book.title} className="w-full h-full object-cover rounded" />
+                        ) : (
+                          <div className="text-white text-xs font-bold">{book.title?.charAt(0) || 'B'}</div>
+                        )}
+                      </div>
 
                       {/* Book Info */}
                       <div className="flex-1 min-w-0">
@@ -311,7 +417,7 @@ const Leaderboard = ({ onStartReading }) => {
                                 <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
                               </svg>
                               <span className="text-xs font-semibold text-theme-primary">
-                                {book.rating}({book.ratingCount})
+                                {Number(book.rating || book.average_rating || 0).toFixed(1)}({book.ratingCount || book.rating_count || 0})
                               </span>
                             </div>
                           </div>
